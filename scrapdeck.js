@@ -1,5 +1,8 @@
+/**
+ * Scrapdeck is based on the work of Decktape
+ * https://github.com/astefanutti/DeckTape
+ */
 var page = require("webpage").create(),
-    printer = require("printer").create(),
     system = require("system"),
     fs = require("fs");
 
@@ -16,24 +19,12 @@ var plugins = loadAvailablePlugins(phantom.libraryPath + "/plugins/");
 
 var parser = require("./libs/nomnom")
     .nocolors()
-    .script("phantomjs decktape.js")
+    .script("phantomjs scrapdeck.js")
     .options( {
         url: {
             position: 1,
             required: true,
             help: "URL of the slides deck"
-        },
-        filename: {
-            position: 2,
-            required: true,
-            help: "Filename of the output PDF file"
-        },
-        size: {
-            abbr: 's',
-            default: "1280x720",
-            callback: parseResolution,
-            transform: parseResolution,
-            help: "Size of the slides deck viewport: <width>x<height>"
         },
         pause: {
             abbr: 'p',
@@ -52,6 +43,7 @@ var parser = require("./libs/nomnom")
         },
         screenshotSize: {
             full: "screenshots-size",
+            default: "1280x720",
             list: true,
             callback: parseResolution,
             transform: parseResolution,
@@ -62,6 +54,10 @@ var parser = require("./libs/nomnom")
             default: "png",
             choices: ["jpg", "png"],
             help: "Screenshots image format, one of [jpg, png]"
+        },
+        maxScreenshots: {
+            full: "max-screenshots",
+            help: "Limit the number of screenshots"
         }
     } );
 parser.nocommand()
@@ -81,9 +77,8 @@ Object.keys(plugins).forEach(function(id) {
 
 var options = parser.parse(system.args.slice(1));
 
-page.viewportSize = options.size;
-printer.paperSize = { width: options.size.width + "px", height: options.size.height + "px", margin: "0px" };
-printer.outputFileName = options.filename;
+// page.viewportSize = options.size;
+// printer.paperSize = { width: options.size.width + "px", height: options.size.height + "px", margin: "0px" };
 
 page.onLoadStarted = function() {
     console.log("Loading page " + options.url + " ...");
@@ -128,9 +123,9 @@ page.open(options.url, function(status) {
                 phantom.exit(1);
             }
         }
+
         console.log(plugin.getName() + " DeckTape plugin activated");
         configure(plugin);
-        printer.begin();
         exportSlide(plugin);
     }
 });
@@ -158,31 +153,29 @@ function exportSlide(plugin) {
     // TODO: support a more advanced "fragment to pause" mapping for special use cases like GIF animations
     // TODO: support plugin optional promise to wait until a particular mutation instead of a pause
     var decktape = delay(options.pause)
-        .then(function() { system.stdout.write('\r' + progressBar(plugin)) })
-        .then(function() { printer.printPage(page) });
+        .then(function() { system.stdout.write('\r' + progressBar(plugin)); })
+    ;
 
-    if (options.screenshots) {
-        decktape = (options.screenshotSize || [options.size]).reduce(function(decktape, resolution) {
-            return decktape.then(function() { page.viewportSize = resolution })
-                // Delay page rendering to wait for the resize event to complete (may be needed to be configurable)
-                .then(delay(500))
-                .then(function() {
-                    page.render(options.screenshotDirectory + '/' + options.filename.replace(".pdf", '_' + plugin.currentSlide + '_' + resolution.width + 'x' + resolution.height + '.' + options.screenshotFormat), { mode: "viewport" });
-                })
-            }, decktape)
-            .then(function() { page.viewportSize = options.size })
-            .then(delay(500));
-    }
+    // export screenshots in multiple resolutions
+    decktape = (options.screenshotSize || [options.size]).reduce(function(decktape, resolution) {
+        return decktape.then(function() { page.viewportSize = resolution })
+            // Delay page rendering to wait for the resize event to complete (may be needed to be configurable)
+            .then(delay(500))
+            .then(function() {
+                page.render(options.screenshotDirectory + '/' + plugin.currentSlide + '_' + resolution.width + 'x' + resolution.height + '.' + options.screenshotFormat, { mode: "viewport" });
+            })
+        }, decktape)
 
     decktape
         .then(function() { return hasNextSlide(plugin) })
         .then(function(hasNext) {
-            if (hasNext) {
+            var maxReached = (options.maxScreenshots && plugin.currentSlide+1 > options.maxScreenshots);
+
+            if (hasNext && !maxReached) {
                 nextSlide(plugin);
                 exportSlide(plugin);
             } else {
-                printer.end();
-                system.stdout.write("\nPrinted " + plugin.currentSlide + " slides\n");
+                system.stdout.write("\nExported " + plugin.currentSlide + " slides\n");
                 phantom.exit();
             }
         });
