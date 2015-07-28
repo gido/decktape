@@ -55,6 +55,11 @@ var parser = require("./libs/nomnom")
             choices: ["jpg", "png"],
             help: "Screenshots image format, one of [jpg, png]"
         },
+        screenshotFileFormat: {
+            full: "screenshots-filename-format",
+            default: "%currentSlide%_%width%x%height%.%format%",
+            help: "define the way the screenshot filename is build"
+        },
         maxScreenshots: {
             full: "max-screenshots",
             help: "Limit the number of screenshots"
@@ -162,7 +167,14 @@ function exportSlide(plugin) {
             // Delay page rendering to wait for the resize event to complete (may be needed to be configurable)
             .then(delay(500))
             .then(function() {
-                page.render(options.screenshotDirectory + '/' + plugin.currentSlide + '_' + resolution.width + 'x' + resolution.height + '.' + options.screenshotFormat, { mode: "viewport" });
+                console.log(options.screenshotFileFormat)
+                var filename = options.screenshotFileFormat
+                    .replace('%currentSlide%', plugin.currentSlide)
+                    .replace('%width%', resolution.width)
+                    .replace('%height%', resolution.height)
+                    .replace('%format%', options.screenshotFormat);
+
+                page.render(options.screenshotDirectory + '/' + filename, { mode: "viewport" });
             })
         }, decktape)
 
